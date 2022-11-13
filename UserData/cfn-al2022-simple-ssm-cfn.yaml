@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2
+Parameters:
+  MyLaunchTemplate:
+    Default: lt-1234
+    Type: String
+  MyLaunchTemplateVersion:
+    Default: 1
+    Type: String
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !Ref MyLaunchTemplateVersion
+      UserData:
+        Fn::Base64: !Sub |
+          Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+          MIME-Version: 1.0
+
+          --==BOUNDARY==
+          Content-Type: text/cloud-config; charset="utf-8"
+
+          #cloud-config
+          packages:
+            - acl
+            - zip
+            - wget
+            - unzip
+            - python-pip
+            - vim-enhanced
+            - amazon-ssm-agent
+
+
+          --==BOUNDARY==
+          Content-Type: text/x-shellscript; charset="utf-8"
+
+          #!/bin/bash
+          #set -x
+          # Sending all output to /var/log/install.log
+          exec 2> /var/log/install.log
+          exec >> /var/log/install.log
+        
+          # https://stackoverflow.com/questions/73062497/terraform-ec2-user-data-and-sessions-manager-ssm-user
+          adduser -m ssm-user
+          cat <<'EOF' > /etc/sudoers.d/ssm-agent-users
+          # User rules for ssm-user
+          ssm-user ALL=(ALL) NOPASSWD:ALL
+          EOF
+          chmod 440 /etc/sudoers.d/ssm-agent-users
+          systemctl enable amazon-ssm-agent.service
+          systemctl start amazon-ssm-agent.service
+
+          echo -e 'cd\ncat /etc/motd' > /home/ssm-user/.bash_profile
+          chown ssm-user:ssm-user /home/ssm-user/.bash_profile
+      
+          --==BOUNDARY==--
+
+Outputs:
+  SSH:
+    Value: !Sub
+      - |
+        aws ssm start-session --document-name AWS-StartInteractiveCommand --parameters "{\"command\": [\" bash -l \"]}" --target ${IID}
+      - { IID: !Ref MyInstance }
