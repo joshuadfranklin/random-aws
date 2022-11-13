@@ -59,7 +59,7 @@ Resources:
           --==BOUNDARY==--
 
 Outputs:
-  SSH:
+  SSM:
     Value: !Sub
       - |
         aws ssm start-session --document-name AWS-StartInteractiveCommand --parameters "{\"command\": [\" bash -l \"]}" --target ${IID}
