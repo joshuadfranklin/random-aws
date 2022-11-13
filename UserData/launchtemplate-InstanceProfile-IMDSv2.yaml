@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2
+Parameters:
+  InstanceType:
+    Default: t3.medium
+    Type: String
+  LatestAmiId:
+    Default: /aws/service/ami-amazon-linux-latest/al2022-ami-minimal-kernel-5.15-x86_64
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+  NameTag:
+    Default: medium
+    Type: String
+  MyIamInstanceProfile:
+    Default: AmazonSSMRoleForInstancesQuickSetup
+    Type: String
+
+
+Resources:
+  MySG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref NameTag
+      Tags:
+      - Key: Name
+        Value: !Ref NameTag
+  MyLT:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: !Sub 'LT-${AWS::StackName}'
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpTokens: required
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+        - !GetAtt MySG.GroupId
+        IamInstanceProfile:
+          Arn: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${MyIamInstanceProfile}'
+        BlockDeviceMappings: 
+          - Ebs:
+              VolumeSize: 22
+              Encrypted: true
+            DeviceName: /dev/xvda
+        TagSpecifications:
+        - ResourceType: instance
+          Tags:
+          - Key: Name
+            Value: !Ref NameTag
+      TagSpecifications:
+      - ResourceType: launch-template
+        Tags:
+        - Key: Name
+          Value: !Ref NameTag

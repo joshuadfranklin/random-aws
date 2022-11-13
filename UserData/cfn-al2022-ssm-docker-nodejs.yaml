@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2
+Parameters:
+  MyLaunchTemplate:
+    Default: lt-1234
+    Type: String
+  MyLaunchTemplateVersion:
+    Default: 1
+    Type: String
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !Ref MyLaunchTemplateVersion
+      UserData:
+        Fn::Base64: !Sub |
+          Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+          MIME-Version: 1.0
+
+          --==BOUNDARY==
+          Content-Type: text/cloud-config; charset="utf-8"
+
+          #cloud-config
+          packages:
+            - acl
+            - git
+            - zip
+            - wget
+            - unzip
+            - docker
+            - python-pip
+            - vim-enhanced
+            - amazon-ssm-agent
+          write_files:
+          - content: |
+              # https://github.com/nvm-sh/nvm#installing-and-updating
+              curl -sO https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh
+              chmod 755 install.sh
+              ./install.sh >/dev/null
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+              NV=hydrogen
+              nvm install lts/$NV 2>/dev/null
+              nvm alias default lts/$NV
+              npm --quiet --silent -g install aws-cdk
+              npm --quiet --silent -g install eslint
+              rm install.sh
+              cd $HOME
+              mv .bashrc .bash_profile
+              echo cd >> $HOME/.bash_profile
+              echo cat /etc/motd  >> $HOME/.bash_profile
+              echo days-since-boot.sh >> $HOME/.bash_profile
+            path: /tmp/ntmp.sh
+            permissions: '0755'
+          - content: |
+              #!/bin/bash
+              now=$(date +%s)
+              boot_time=$(ls -l --time-style="+%s" /var/lib/cloud/instance/boot-finished | gawk '{print $6}')
+              echo $((  ($now - $boot_time) / (3600*24)  )) days since boot finished
+            path: /usr/local/bin/days-since-boot.sh
+            permissions: '0755'
+
+
+          --==BOUNDARY==
+          Content-Type: text/x-shellscript; charset="utf-8"
+
+          #!/bin/bash
+          #set -x
+          # Sending all output to /var/log/install.log
+          exec 2> /var/log/install.log
+          exec >> /var/log/install.log
+        
+          userdata_tmp_dir=`mktemp -d -p /dev/shm`
+          function userdata_tmp_cleanup {
+            echo "Deleting userdata_tmp_dir $userdata_tmp_dir"
+            rm -rf "$userdata_tmp_dir"
+          }
+          trap userdata_tmp_cleanup EXIT
+          chmod 755 $userdata_tmp_dir
+          cd $userdata_tmp_dir
+      
+          # roughly 20-40 seconds after RunInstances
+          boot_time=$(ls -l --time-style="+%s" /var/lib/cloud/instance/datasource | gawk '{print $6}')
+          now=$(date +%s)
+          echo BEGIN $((  ($now - $boot_time) )) seconds since boot finished
+      
+          # https://stackoverflow.com/questions/73062497/terraform-ec2-user-data-and-sessions-manager-ssm-user
+          adduser -m ssm-user
+          cat <<'EOF' > /etc/sudoers.d/ssm-agent-users
+          # User rules for ssm-user
+          ssm-user ALL=(ALL) NOPASSWD:ALL
+          EOF
+          chmod 440 /etc/sudoers.d/ssm-agent-users
+          systemctl enable amazon-ssm-agent.service
+          systemctl start amazon-ssm-agent.service
+      
+          systemctl enable docker.service
+          systemctl start docker.service
+          usermod -a -G docker ec2-user
+          usermod -a -G docker ssm-user
+          # let ec2-user and ssm-user read logs
+          setfacl -R -m g:wheel:rx,g:adm:rx,g:docker:rx /var/log/
+          setfacl -R -m g:wheel:rx,g:adm:rx,g:docker:rx /var/lib/cloud
+      
+          # use latest AWS CLI and SAM CLI
+          echo CLI $((  ($(date +%s) - $boot_time) )) seconds since boot finished
+          dnf remove -q -y awscli
+          curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          ./aws/install
+          curl -sLO https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
+          unzip -q aws-sam-cli-linux-x86_64.zip -d sam-installation
+          ./sam-installation/install
+          su -l ec2-user -c "aws configure set default.region ${AWS::Region}"
+          su -l ssm-user -c "aws configure set default.region ${AWS::Region}"
+
+          # http://docs.aws.amazon.com/sdk-for-javascript/v2/developer-guide/setting-up-node-on-ec2-instance.html
+          echo NODEJS $((  ($(date +%s) - $boot_time) )) seconds since boot finished
+          su -l ssm-user /tmp/ntmp.sh
+
+          #dnf -q -y update --releasever=2022.0.20221012
+          update-motd
+      
+          echo DONE $((  ($(date +%s) - $boot_time) )) seconds since boot finished
+      
+          --==BOUNDARY==--
+
+Outputs:
+  SSH:
+    Value: !Sub
+      - |
+        aws ssm start-session --document-name AWS-StartInteractiveCommand --parameters "{\"command\": [\" bash -l \"]}" --target ${IID}
+      - { IID: !Ref MyInstance }
