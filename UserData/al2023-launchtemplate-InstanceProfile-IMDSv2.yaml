@@ -5,7 +5,7 @@ Parameters:
     Default: t3.medium
     Type: String
   LatestAmiId:
-    Default: /aws/service/ami-amazon-linux-latest/al2022-ami-minimal-kernel-5.15-x86_64
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
   NameTag:
     Default: medium
