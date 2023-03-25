@@ -2,7 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: EC2
 Parameters:
   MyLaunchTemplate:
-    Default: lt-1234
     Type: String
   MyLaunchTemplateVersion:
     Default: 1
